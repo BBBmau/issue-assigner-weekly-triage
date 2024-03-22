@@ -1,7 +1,7 @@
-name: 'Issue assigner'
+name: 'Issue assigner for Weekly Triage'
 description: 'Assign issues using gitlog'
-icon: 'alert-octagon'
-color: 'yellow'
+# icon: 'alert-octagon'
+# color: 'yellow'
 author: 'estrada9166'
 inputs: 
   GITHUB_TOKEN:

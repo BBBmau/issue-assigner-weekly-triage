@@ -1,10 +1,10 @@
-# Issue assigner
+# Issue assigner for Weekly Triage
 
 Assign issues to the last user that changed that line.
 
 ## Create a workflow:
 ```yml
-name: "Issue assigner"
+name: "Issue assigner for Weekly Triage"
 
 on: [issues, issue_comment]
 

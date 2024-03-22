@@ -2,24 +2,9 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import _ from 'lodash'
 
-type ReportedInfo = {
-  fileName: string | null
-  issueLine: number | null
-  branch: string | 'master'
-}
-
 type IssueInfo = {
   body: string | undefined
   issueNodeId: string
-}
-
-type CommitInfo = {
-  userId: string
-  username: string
-  userUrl: string
-  commitSha: string
-  commitUrl: string
-  commitDate: string
 }
 
 async function run() {
@@ -50,46 +35,23 @@ async function run() {
       return
     }
 
-    const { fileName, issueLine, branch } = getFileNameAndIssueLine(body)
-
-    if (!(fileName && issueLine) || fileName.includes('node_modules')) {
-      console.log('There was no valid fileName or issue')
-      return
-    }
-
     const client = new github.GitHub(token)
+    
+    // userId would be whoever is the person on-call 
 
-    const commitInfo = await getGitBlame(client, fileName, issueLine, branch)
+    await addAssigneesToAssignable(client, "mau", issueNodeId)
 
-    if (!commitInfo) {
-      console.log('No valid commit info')
-      return
-    }
-
-    const {
-      userId,
-      username,
-      userUrl,
-      commitSha,
-      commitUrl,
-      commitDate,
-    } = commitInfo
-
-    core.debug(`assigning userId ${userId} to issue #${issueNodeId}`)
-
-    await addAssigneesToAssignable(client, userId, issueNodeId)
-
-    if (commentsEnabled === 'true') {
-      const commentBody = createCommentBody(
-        username,
-        userUrl,
-        commitSha,
-        commitUrl,
-        commitDate
-      )
-      await createComment(client, issueNodeId, commentBody)
-    }
-  } catch (error) {
+    // if (commentsEnabled === 'true') {
+    //   const commentBody = createCommentBody(
+    //     username,
+    //     userUrl,
+    //     commitSha,
+    //     commitUrl,
+    //     commitDate
+    //   )
+    //   await createComment(client, issueNodeId, commentBody)
+    // }
+  } catch (error: any) {
     core.error(error)
     core.setFailed(error.message)
   }
@@ -105,140 +67,6 @@ function getIssueInfo(): IssueInfo | undefined {
   return {
     body: comment ? comment.body : issue.body,
     issueNodeId: issue.node_id,
-  }
-}
-
-function getFileNameAndIssueLine(body: string): ReportedInfo {
-  // We need to get the lines with the file and line that is having issues.
-  const re = /(.*file\s+)(.*)(\s+line.*)/gi
-  const strLines = body.match(re)
-
-  // Select the first line and also the fileName that is between "".
-  // e.g. File "/app/packages/dashboard/src/test/fileABC.ts"
-  const file = strLines ? strLines[0].match(/"(.*?)"/g) : null
-  // Select the line number between line and ,. e.g line 266,
-  const line = strLines ? strLines[0].match(/(?<=line\s+).*?(?=,)/gs) : null
-
-  let selectedFile
-  let selectedLine
-  let selectedBranch = 'master'
-  if (file && line) {
-    // Sentry errors starts with File "/app/packages/dashboard/src/test/fileABC.ts", line 266, in xyz
-    // We need the file without the first / and also without app
-    selectedFile = file[0]
-      .replace(/"/g, '')
-      .split('/')
-      .slice(2)
-      .join('/')
-    selectedLine = parseInt(line[0])
-  } else {
-    const url = body.match(/(?:blob|blame)\/\s*(\S+)/i)
-
-    if (url) {
-      const urlInfo = url[1].split('/')
-      selectedBranch = urlInfo[0]
-      const [file, line] = urlInfo.pop()!.split('#L')
-      selectedFile = urlInfo
-        .slice(1)
-        .concat(file)
-        .join('/')
-      selectedLine = line
-    }
-  }
-
-  return {
-    fileName: selectedFile,
-    issueLine: selectedLine,
-    branch: selectedBranch,
-  }
-}
-
-async function getGitBlame(
-  client: github.GitHub,
-  reportedFile: string,
-  reportedLine: number,
-  branch: string
-): Promise<CommitInfo | undefined> {
-  const repository = github.context.payload.repository
-
-  if (!(repository && repository.full_name)) {
-    return
-  }
-
-  const [owner, repo] = repository.full_name.split('/')
-  const gitBlame = await client.graphql(
-    `query GIT_BLAME($repo: String!, $owner: String!, $path: String!, $branch: String!){
-    repository(name: $repo, owner: $owner) {
-      assignableUsers(first: 30) {
-        nodes {
-          id
-        }
-      }
-      # branch name
-      ref(qualifiedName: $branch) {      
-        target {
-          # cast Target to a Commit
-          ... on Commit {
-            blame(path: $path) {
-              ranges {
-                commit {
-                  abbreviatedOid
-                  authoredDate
-                  commitUrl
-                  author {
-                    user {
-                      login
-                      url
-                      id
-                    }
-                  }
-                }
-                startingLine
-                endingLine
-                age
-              }
-            }
-          }
-        }
-      }
-    }
-  }`,
-    {
-      owner,
-      repo,
-      path: reportedFile,
-      branch,
-    }
-  )
-
-  const assignableUsers = gitBlame.repository.assignableUsers.nodes
-  const blame = gitBlame.repository.ref.target.blame.ranges
-  const blameLine = _.filter(blame, (info) => {
-    return info.startingLine <= reportedLine && info.endingLine >= reportedLine
-  })
-
-  if (blameLine.length) {
-    let selectedBlame = blameLine[0]
-    if (blameLine.length > 1) {
-      const sortedBlame = _.sortBy(blameLine, ['age'])
-      selectedBlame = sortedBlame[0]
-    }
-
-    const commit = selectedBlame.commit
-    const { id: userId, login: username, url: userUrl } = commit.author.user
-
-    if (!_.find(assignableUsers, { id: userId })) {
-      return
-    }
-
-    return {
-      userId,
-      username,
-      userUrl,
-      commitSha: commit.abbreviatedOid,
-      commitUrl: commit.commitUrl,
-      commitDate: commit.authoredDate,
-    }
   }
 }
 
@@ -267,42 +95,42 @@ async function addAssigneesToAssignable(
   )
 }
 
-function createCommentBody(
-  username: string,
-  userUrl: string,
-  commitSHA: string,
-  commitUrl: string,
-  commitDate: string
-) {
-  return `
-### Commit information
-| | |
-| --- | --- |
-| **Author** | <a href="${userUrl}">${username}</a> |
-| **Commit** | <a href="${commitUrl}">${commitSHA}</a> |
-| **Commit date** | ${commitDate} |
-  `
-}
+// function createCommentBody(
+//   username: string,
+//   userUrl: string,
+//   commitSHA: string,
+//   commitUrl: string,
+//   commitDate: string
+// ) {
+//   return `
+// ### Commit information
+// | | |
+// | --- | --- |
+// | **Author** | <a href="${userUrl}">${username}</a> |
+// | **Commit** | <a href="${commitUrl}">${commitSHA}</a> |
+// | **Commit date** | ${commitDate} |
+//   `
+// }
 
-async function createComment(
-  client: github.GitHub,
-  issueNodeId: string,
-  body: string
-): Promise<void> {
-  await client.graphql(
-    `mutation AddComment($input: AddCommentInput!) {
-    addComment(input:$input) {
-      clientMutationId
-    }
-  }
-  `,
-    {
-      input: {
-        subjectId: issueNodeId,
-        body,
-      },
-    }
-  )
-}
+// async function createComment(
+//   client: github.GitHub,
+//   issueNodeId: string,
+//   body: string
+// ): Promise<void> {
+//   await client.graphql(
+//     `mutation AddComment($input: AddCommentInput!) {
+//     addComment(input:$input) {
+//       clientMutationId
+//     }
+//   }
+//   `,
+//     {
+//       input: {
+//         subjectId: issueNodeId,
+//         body,
+//       },
+//     }
+//   )
+// }
 
 run()
