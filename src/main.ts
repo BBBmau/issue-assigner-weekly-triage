@@ -10,8 +10,9 @@ type IssueInfo = {
 async function run() {
   try {
     const token = core.getInput('GITHUB_TOKEN', { required: true })
+    // const memberList = core.getInput('MEMBER_LIST', { required: true }) // MEMBER_LIST: "mau,john,sarah" this can be set set as a GITHUB_ENV
     const commentsEnabled = core.getInput('WITH_COMMENTS', { required: true })
-
+    // const onCall = memberList.split(',')[0]
     if (
       github.context.payload.action &&
       !['created', 'opened', 'reopened'].includes(github.context.payload.action)
@@ -35,11 +36,11 @@ async function run() {
       return
     }
 
-    const client = new github.GitHub(token)
-    
-    // userId would be whoever is the person on-call 
+    const client = github.getOctokit(token)
+    //client.teams.list
+    // userId would be whoever is the person on-call
 
-    await addAssigneesToAssignable(client, "mau", issueNodeId)
+    await addAssigneesToAssignable(client, 'mau', issueNodeId)
 
     // if (commentsEnabled === 'true') {
     //   const commentBody = createCommentBody(
@@ -51,9 +52,10 @@ async function run() {
     //   )
     //   await createComment(client, issueNodeId, commentBody)
     // }
-  } catch (error: any) {
-    core.error(error)
-    core.setFailed(error.message)
+  } catch (error) {
+    console.error("GHA Error:",error)
+    // core.error(error)
+    // core.setFailed(error.message)
   }
 }
 
@@ -71,7 +73,7 @@ function getIssueInfo(): IssueInfo | undefined {
 }
 
 async function addAssigneesToAssignable(
-  client: github.GitHub,
+  client: any,
   userId: string,
   issueNodeId: string
 ): Promise<void> {
